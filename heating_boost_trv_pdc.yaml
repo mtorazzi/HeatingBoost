@@ -1,0 +1,293 @@
+blueprint:
+  name: "Heating Boost v3 — TRV Tado + Pompa di Calore"
+  description: >
+    Raggruppa valvole TRV Tado e condizionatori/PDC (pompe di calore).
+    Quando il delta tra setpoint e temperatura attuale di almeno una TRV
+    supera la soglia configurata, attiva le PDC in modalità riscaldamento.
+
+    Le PDC, più efficienti nella fase di innalzamento rapido della temperatura,
+    portano velocemente la stanza al target; i caloriferi mantengono poi il
+    regime termico (loro punto di forza). Al termine del boost viene
+    ripristinato lo stato pre-boost dei condizionatori.
+
+    Novità v3 rispetto a v2:
+    ━ Trigger su numeric_state del delta (target − attuale): fires solo
+      al crossing della soglia, coprendo sia il caso "setpoint alzato"
+      sia "stanza che si raffredda" — senza polling periodico
+    ━ Condition semplificata: il delta è già garantito dal trigger,
+      si verifica solo il setpoint minimo (esclusione antigelo/standby)
+    ━ boost_temperature sempre coerente con la TRV triggering
+      (il fallback non è più necessario grazie al nuovo trigger)
+
+    Funzionalità:
+    ━ Monitoraggio N valvole TRV Tado
+    ━ Attivazione N condizionatori/PDC in modalità heat
+    ━ Setpoint AC fisso o sincronizzato con il target della TRV triggering
+    ━ Early stop quando tutte le TRV rientrano nella soglia
+    ━ Cooldown tra boost per proteggere i compressori
+    ━ Snapshot/restore automatico dello stato pre-boost dei condizionatori
+    ━ Esclusione TRV in antigelo/standby tramite soglia minima setpoint
+
+  domain: automation
+  source_url: https://github.com/mtorazzi/blueprints/blob/main/heating_boost_trv_pdc.yaml
+  homeassistant:
+    min_version: "2024.6.0"
+
+  input:
+
+    # ──────────────────────────────────────────────────────────
+    # SEZIONE: ENTITÀ
+    # ──────────────────────────────────────────────────────────
+    trv_entities:
+      name: "🌡 Valvole TRV (Tado)"
+      description: >
+        Entità climate Tado da monitorare nel gruppo.
+        Il boost si attiva quando almeno una supera la soglia delta.
+      selector:
+        entity:
+          multiple: true
+          domain: climate
+
+    ac_entities:
+      name: "❄ Condizionatori / Pompe di Calore"
+      description: >
+        Entità climate da attivare in modalità 'heat' durante il boost.
+      selector:
+        entity:
+          multiple: true
+          domain: climate
+
+    # ──────────────────────────────────────────────────────────
+    # SEZIONE: TEMPERATURE
+    # ──────────────────────────────────────────────────────────
+    temperature_delta:
+      name: "Soglia Delta (°C)"
+      description: >
+        Differenza minima tra setpoint TRV e temperatura attuale
+        per attivare il boost.
+        Esempio: 2°C → boost se target=20°C e attuale ≤ 18°C.
+      default: 2.0
+      selector:
+        number:
+          min: 0.5
+          max: 10.0
+          step: 0.5
+          unit_of_measurement: "°C"
+          mode: slider
+
+    min_trv_target:
+      name: "Setpoint Minimo TRV (°C)"
+      description: >
+        Soglia minima di setpoint per considerare una TRV "attiva".
+        TRV con target inferiore (antigelo, standby) vengono ignorate
+        e non possono innescare il boost.
+      default: 16.0
+      selector:
+        number:
+          min: 5.0
+          max: 25.0
+          step: 0.5
+          unit_of_measurement: "°C"
+          mode: slider
+
+    sync_ac_to_trv:
+      name: "🔗 Sincronizza Setpoint AC con TRV"
+      description: >
+        Se ABILITATO: il setpoint delle PDC durante il boost è uguale
+        al target della TRV che ha scatenato il trigger.
+        Grazie al trigger su delta, questa TRV è sempre quella che ha
+        appena attraversato la soglia — nessun fallback necessario.
+
+        Se DISABILITATO: usa il setpoint fisso configurato sotto.
+      default: false
+      selector:
+        boolean: {}
+
+    ac_temperature:
+      name: "Setpoint AC Fisso durante Boost (°C)"
+      description: >
+        Temperatura target da impostare sui condizionatori/PDC.
+        Utilizzato solo se 'Sincronizza Setpoint AC con TRV' è disabilitato.
+      default: 21.0
+      selector:
+        number:
+          min: 16.0
+          max: 30.0
+          step: 0.5
+          unit_of_measurement: "°C"
+          mode: slider
+
+    # ──────────────────────────────────────────────────────────
+    # SEZIONE: TIMING
+    # ──────────────────────────────────────────────────────────
+    boost_duration:
+      name: "Durata Massima Boost"
+      description: >
+        Tempo massimo di attivazione delle PDC per ogni ciclo.
+        Con early stop abilitato potrebbe terminare prima.
+      default:
+        hours: 0
+        minutes: 30
+        seconds: 0
+      selector:
+        duration: {}
+
+    early_stop_enabled:
+      name: "Stop Anticipato"
+      description: >
+        Se abilitato, ripristina i condizionatori non appena TUTTE
+        le TRV attive rientrano nella soglia delta, senza attendere
+        la durata massima.
+      default: true
+      selector:
+        boolean: {}
+
+    cooldown_duration:
+      name: "Cooldown tra Boost"
+      description: >
+        Pausa minima dopo ogni boost prima di poterne avviare un altro.
+        Protegge i compressori delle PDC da cicli troppo ravvicinati.
+        Consigliato: almeno 20-30 minuti.
+      default:
+        hours: 0
+        minutes: 30
+        seconds: 0
+      selector:
+        duration: {}
+
+# ════════════════════════════════════════════════════════════════
+# VARIABILI GLOBALI
+# ════════════════════════════════════════════════════════════════
+variables:
+  trv_list: !input trv_entities
+  min_target: !input min_trv_target
+  delta_threshold: !input temperature_delta
+  sync_enabled: !input sync_ac_to_trv
+  ac_temperature_fixed: !input ac_temperature
+  early_stop: !input early_stop_enabled
+  # ID scena univoco per istanza: supporta più blueprint in zone diverse
+  scene_snapshot_id: >
+    boost_snapshot_{{ this.entity_id
+      | replace('automation.', '')
+      | replace('-', '_')
+      | lower }}
+
+# ════════════════════════════════════════════════════════════════
+# TRIGGER
+# numeric_state sul delta calcolato (target − attuale) per ogni TRV.
+#
+# Fires SOLO al crossing upward della soglia, coprendo due scenari:
+#   A) Utente/schedule alza il setpoint TRV
+#   B) La stanza si raffredda (temperatura attuale scende)
+#
+# Non ri-triggerina mentre il delta è già sopra soglia.
+# ════════════════════════════════════════════════════════════════
+trigger:
+  - platform: numeric_state
+    entity_id: !input trv_entities
+    value_template: >
+      {{ (state.attributes.temperature | float(0)) -
+         (state.attributes.current_temperature | float(0)) }}
+    above: !input temperature_delta
+
+# ════════════════════════════════════════════════════════════════
+# CONDITION
+# Il delta è già garantito dal trigger (crossing upward).
+# Si verifica solo che il setpoint della TRV triggering sia
+# >= min_trv_target, escludendo antigelo e modalità standby.
+# ════════════════════════════════════════════════════════════════
+condition:
+  - condition: template
+    alias: "TRV triggering ha setpoint >= minimo configurato"
+    value_template: >
+      {{ state_attr(trigger.entity_id, 'temperature') | float(0)
+         >= min_target | float }}
+
+# ════════════════════════════════════════════════════════════════
+# MODE
+# single: un solo boost attivo per volta.
+# Nuovi trigger durante boost+cooldown vengono ignorati silenziosamente.
+# ════════════════════════════════════════════════════════════════
+mode: single
+max_exceeded: silent
+
+# ════════════════════════════════════════════════════════════════
+# ACTION
+# ════════════════════════════════════════════════════════════════
+action:
+
+  # ── 0. RISOLVI TEMPERATURA BOOST ────────────────────────────
+  # Con il trigger su delta, la TRV triggering ha già attraversato
+  # la soglia per definizione. Se sync abilitato → uso direttamente
+  # il suo target. Nessun fallback necessario (architettura v3).
+  - variables:
+      boost_temperature: >
+        {% if sync_enabled %}
+          {{ state_attr(trigger.entity_id, 'temperature') | float(ac_temperature_fixed) }}
+        {% else %}
+          {{ ac_temperature_fixed }}
+        {% endif %}
+
+  # ── 1. SNAPSHOT ─────────────────────────────────────────────
+  # Salva stato completo (hvac_mode, temperatura, fan_mode) di tutti
+  # i condizionatori per ripristino post-boost.
+  - alias: "Salva snapshot stato pre-boost dei condizionatori"
+    service: scene.create
+    data:
+      scene_id: "{{ scene_snapshot_id }}"
+      snapshot_entities: !input ac_entities
+
+  # ── 2. BOOST ON ─────────────────────────────────────────────
+  # hvac_mode prima, poi temperatura: garantisce compatibilità con
+  # integration che richiedono la modalità attiva prima del setpoint.
+  - alias: "Imposta hvac_mode 'heat' sui condizionatori"
+    service: climate.set_hvac_mode
+    target:
+      entity_id: !input ac_entities
+    data:
+      hvac_mode: heat
+
+  - alias: "Imposta setpoint boost sui condizionatori"
+    service: climate.set_temperature
+    target:
+      entity_id: !input ac_entities
+    data:
+      temperature: "{{ boost_temperature }}"
+
+  # ── 3. WAIT ─────────────────────────────────────────────────
+  # Con early_stop: esce non appena nessuna TRV attiva supera più
+  # il delta-soglia (temperatura raggiunta). Altrimenti → timeout.
+  - alias: "Attendi fine boost (early stop o timeout)"
+    wait_template: >
+      {% if not early_stop %}
+        false
+      {% else %}
+        {% set ns = namespace(any_over_delta=false) %}
+        {% for entity in trv_list %}
+          {% if states(entity) not in ['off', 'unavailable', 'unknown'] %}
+            {% set current = state_attr(entity, 'current_temperature') | float(none) %}
+            {% set target  = state_attr(entity, 'temperature')         | float(none) %}
+            {% if current is not none and target is not none
+               and target >= min_target | float
+               and (target - current) >= delta_threshold | float %}
+              {% set ns.any_over_delta = true %}
+            {% endif %}
+          {% endif %}
+        {% endfor %}
+        {{ not ns.any_over_delta }}
+      {% endif %}
+    timeout: !input boost_duration
+    continue_on_timeout: true
+
+  # ── 4. RESTORE ──────────────────────────────────────────────
+  # Ripristina lo stato esatto pre-boost. Se le PDC erano spente
+  # tornano spente; se erano già in heat tornano ai loro parametri.
+  - alias: "Ripristina stato pre-boost dei condizionatori"
+    service: scene.turn_on
+    target:
+      entity_id: "scene.{{ scene_snapshot_id }}"
+
+  # ── 5. COOLDOWN ─────────────────────────────────────────────
+  # mode: single blocca nuovi boost per tutta la durata di questo delay.
+  - alias: "Cooldown — pausa prima del prossimo boost"
+    delay: !input cooldown_duration
