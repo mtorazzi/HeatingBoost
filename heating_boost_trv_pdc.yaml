@@ -1,7 +1,7 @@
 blueprint:
-  name: "Heating Boost v3 — TRV Tado + Pompa di Calore"
+  name: "Heating Boost v3 — TRV + Pompa di Calore"
   description: >
-    Raggruppa valvole TRV Tado e condizionatori/PDC (pompe di calore).
+    Raggruppa valvole TRV e condizionatori/PDC (pompe di calore).
     Quando il delta tra setpoint e temperatura attuale di almeno una TRV
     supera la soglia configurata, attiva le PDC in modalità riscaldamento.
 
@@ -20,7 +20,7 @@ blueprint:
       (il fallback non è più necessario grazie al nuovo trigger)
 
     Funzionalità:
-    ━ Monitoraggio N valvole TRV Tado
+    ━ Monitoraggio N valvole TRV
     ━ Attivazione N condizionatori/PDC in modalità heat
     ━ Setpoint AC fisso o sincronizzato con il target della TRV triggering
     ━ Early stop quando tutte le TRV rientrano nella soglia
@@ -39,7 +39,7 @@ blueprint:
     # SEZIONE: ENTITÀ
     # ──────────────────────────────────────────────────────────
     trv_entities:
-      name: "🌡 Valvole TRV (Tado)"
+      name: "🌡 Valvole TRV"
       description: >
         Entità climate Tado da monitorare nel gruppo.
         Il boost si attiva quando almeno una supera la soglia delta.
