@@ -4,9 +4,9 @@ Collezione di blueprint per Home Assistant.
 
 ---
 
-## 🔥 Heating Boost — TRV Tado + Pompa di Calore
+## 🔥 Heating Boost — TRV + Pompa di Calore
 
-Raggruppa valvole TRV Tado e condizionatori/PDC in un gruppo di riscaldamento ibrido.
+Raggruppa valvole TRV e condizionatori/PDC in un gruppo di riscaldamento ibrido.
 Quando il delta tra setpoint e temperatura attuale supera la soglia configurata,
 attiva le PDC in modalità heat per accelerare il riscaldamento.
 Le PDC riscaldano rapidamente; i caloriferi mantengono poi il regime termico.
