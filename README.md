@@ -23,7 +23,7 @@ Le PDC riscaldano rapidamente; i caloriferi mantengono poi il regime termico.
 
 ### Requisiti
 - Home Assistant 2024.6.0+
-- Valvole Tado integrate tramite integrazione ufficiale Tado
+- Valvole TRV integrate come entità `climate`
 - Condizionatori/PDC integrati come entità `climate`
 
 ### Parametri
