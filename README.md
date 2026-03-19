@@ -19,7 +19,7 @@ Le PDC riscaldano rapidamente; i caloriferi mantengono poi il regime termico.
 - Cooldown configurabile per proteggere i compressori
 - Supporto multi-istanza (una per zona/piano)
 
-[![Importa in Home Assistant](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fraw.githubusercontent.com%2Fmtorazzi%2Fblueprints%2Fmain%2Fheating_boost_trv_pdc.yaml)
+[![Importa in Home Assistant](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fraw.githubusercontent.com%2Fmtorazzi%2FHeatingBoost%2Fmain%2Fheating_boost_trv_pdc.yaml)
 
 ### Requisiti
 - Home Assistant 2024.6.0+
